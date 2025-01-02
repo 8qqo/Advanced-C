@@ -1,0 +1,145 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <math.h>  // For fabs (absolute value)
+
+// 定義矩陣結構
+typedef struct {
+    int rows;
+    int cols;
+    double** data;
+} Matrix;
+
+// 初始化矩陣
+Matrix* create_matrix(int rows, int cols) {
+    Matrix* mat = (Matrix*)malloc(sizeof(Matrix));
+    mat->rows = rows;
+    mat->cols = cols;
+    mat->data = (double**)malloc(rows * sizeof(double*));
+    for (int i = 0; i < rows; i++) {
+        mat->data[i] = (double*)malloc(cols * sizeof(double));
+    }
+    return mat;
+}
+
+// 前向傳播：計算預測值 y_pred = X * W + b
+double forward(Matrix* X, Matrix* W, double* b) {
+    double result = 0.0;
+    for (int i = 0; i < X->rows; i++) {
+        result += X->data[i][0] * W->data[i][0];
+    }
+    return result + *b;
+}
+
+// 均方誤差 (MSE) 損失函數
+double mse(double y_true, double y_pred) {
+    return (y_true - y_pred) * (y_true - y_pred);
+}
+
+// 更新權重和偏置：W -= learning_rate * gradient, b -= learning_rate * gradient
+void update_weights(Matrix* W, double* b, double learning_rate, double gradient) {
+    for (int i = 0; i < W->rows; i++) {
+        W->data[i][0] -= learning_rate * gradient;
+    }
+    *b -= learning_rate * gradient;
+}
+
+// 訓練過程
+void train(Matrix* X, double* y, Matrix* W, double* b, double learning_rate, int epochs, double threshold) {
+    double total_pred_sum = 0.0;
+    int total_pred_count = 0;
+
+    // 記錄每個y_pred出現的次數
+    double pred_values[1000];
+    int pred_count[1000] = {0};
+    int unique_preds = 0;
+
+    int correct_predictions = 0;  // 記錄準確預測的次數
+
+    for (int epoch = 0; epoch < epochs; epoch++) {
+        double total_loss = 0.0;
+        for (int i = 0; i < X->rows; i++) {
+            double y_pred = forward(X, W, b);
+            double loss = mse(y[i], y_pred);
+            total_loss += loss;
+
+            // 記錄預測值的總和和計數
+            total_pred_sum += y_pred;
+            total_pred_count++;
+
+            // 檢查預測是否在閾值內，來計算準確度
+            if (fabs(y_pred - y[i]) < threshold) {
+                correct_predictions++;
+            }
+
+            // 找到或新增預測值
+            int found = 0;
+            for (int j = 0; j < unique_preds; j++) {
+                if (pred_values[j] == y_pred) {
+                    pred_count[j]++;
+                    found = 1;
+                    break;
+                }
+            }
+            if (!found) {
+                pred_values[unique_preds] = y_pred;
+                pred_count[unique_preds] = 1;
+                unique_preds++;
+            }
+
+            double gradient = 2 * (y_pred - y[i]);
+            update_weights(W, b, learning_rate, gradient);
+        }
+        printf("Epoch %d: Loss = %f\n", epoch, total_loss / X->rows);
+    }
+
+    // 計算並輸出預測值的平均
+    double mean_pred = total_pred_sum / total_pred_count;
+    printf("平均預測值: %f\n", mean_pred);
+
+    // 計算並輸出頻率均值
+    double freq_mean = 0.0;
+    for (int i = 0; i < unique_preds; i++) {
+        freq_mean += pred_count[i] / (double)total_pred_count;
+    }
+    printf("頻率均值: %f\n", freq_mean);
+
+    // 計算準確度百分比
+    double accuracy = (double)correct_predictions / total_pred_count * 100;
+    printf("模型準確度: %.2f%%\n", accuracy);
+}
+
+// 主函數
+int main() {
+    // 初始化數據
+    int rows = 2;
+    Matrix* X = create_matrix(rows, 1);  // 輸入數據
+    Matrix* W = create_matrix(rows, 1);  // 權重
+    double b = 0.0;  // 偏置
+
+    // 設定輸入數據
+    X->data[0][0] = 1.0;
+    X->data[1][0] = 2.0;
+
+    // 初始化權重
+    W->data[0][0] = 0.1;
+    W->data[1][0] = 0.1;
+
+    // 標籤數據
+    double y[2] = {2.0, 3.0};
+
+    // 訓練模型，設置準確度閾值 (0.1)
+    train(X, y, W, &b, 0.01, 1000, 0.1);
+
+    // 釋放內存
+    for (int i = 0; i < rows; i++) {
+        free(X->data[i]);
+        free(W->data[i]);
+    }
+    free(X->data);
+    free(W->data);
+    free(X);
+    free(W);
+
+    return 0;
+}
